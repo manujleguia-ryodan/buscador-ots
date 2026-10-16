@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buscador de OTs</title>
+<style>
+body{font:16px Arial;background:#f3f5f8;color:#172033;margin:0;padding:18px}
+main{max-width:800px;margin:auto}
+h1{color:#174a82}
+input,textarea,button{box-sizing:border-box;width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #ccd3dd;font-size:16px}
+button{background:#1756a9;color:white;border:0;font-weight:bold}
+.card{background:white;padding:14px;margin:10px 0;border-radius:10px;box-shadow:0 1px 5px #ddd}
+.small{color:#687386;font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>Buscador de OTs</h1>
+<p>Consulta órdenes de trabajo por número, equipo, reserva o descripción.</p>
+<input id="q" placeholder="Buscar OT, equipo, reserva..." oninput="render()">
+<div class="card">
+<b>Importar archivo TXT</b>
+<input type="file" id="file" accept=".txt">
+<button onclick="importar()">Importar OTs</button>
+<textarea id="txt" rows="4" placeholder="También puedes pegar aquí una OT por línea"></textarea>
+<button onclick="agregar()">Agregar líneas pegadas</button>
+<p class="small">Las OTs existentes no se duplican.</p>
+</div>
+<p id="count"></p>
+<div id="lista"></div>
+<p class="small">Prototipo inicial: las marcas se guardan en este navegador. Aún falta configurar la base de datos compartida para sincronizar usuarios.</p>
+</main>
+<script>
+let ots=JSON.parse(localStorage.getItem("ots")||"[]");
+function guardar(){localStorage.setItem("ots",JSON.stringify(ots));render()}
+function procesar(texto){
+texto.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).forEach(linea=>{
+let m=linea.match(/\bOT\s*[:#-]?\s*(\d{5,})/i);
+if(!m)return;
+let numero=m[1];
+if(!ots.some(o=>o.numero===numero))
+ots.push({numero,linea,notificada:false});
+});
+guardar();
+}
+function importar(){
+let f=document.getElementById("file").files[0];
+if(!f){alert("Selecciona un archivo TXT.");return}
+let r=new FileReader();
+r.onload=()=>procesar(r.result);
+r.readAsText(f);
+}
+function agregar(){
+procesar(document.getElementById("txt").value);
+document.getElementById("txt").value="";
+}
+function copiar(n){
+navigator.clipboard.writeText(n).then(()=>alert("OT copiada: "+n))
+.catch(()=>prompt("Copia el número de OT:",n));
+}
+function marcar(n,v){
+let o=ots.find(x=>x.numero===n);
+if(o)o.notificada=v;
+guardar();
+}
+function render(){
+let q=document.getElementById("q").value.toLowerCase();
+let lista=ots.filter(o=>(o.numero+" "+o.linea).toLowerCase().includes(q));
+document.getElementById("count").textContent=lista.length+" OTs encontradas";
+document.getElementById("lista").innerHTML=lista.map(o=>`
+<div class="card">
+<b>OT ${o.numero}</b>
+<p>${esc(o.linea)}</p>
+<button onclick="copiar('${o.numero}')">Copiar número OT</button>
+<label><input type="checkbox" style="width:auto" ${o.notificada?"checked":""} onchange="marcar('${o.numero}',this.checked)"> OT notificada</label>
+</div>`).join("");
+}
+function esc(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+render();
+</script>
+</body>
+</html>
