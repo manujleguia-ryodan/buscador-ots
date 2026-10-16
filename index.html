@@ -5,79 +5,71 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Buscador de OTs</title>
 <style>
-body{font:16px Arial;background:#f3f5f8;color:#172033;margin:0;padding:18px}
-main{max-width:800px;margin:auto}
-h1{color:#174a82}
-input,textarea,button{box-sizing:border-box;width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #ccd3dd;font-size:16px}
-button{background:#1756a9;color:white;border:0;font-weight:bold}
-.card{background:white;padding:14px;margin:10px 0;border-radius:10px;box-shadow:0 1px 5px #ddd}
-.small{color:#687386;font-size:13px}
+:root{font-family:Arial,sans-serif;color:#172033;background:#f3f5f8}*{box-sizing:border-box}body{margin:0;padding:16px}main{max-width:850px;margin:auto}h1{color:#174a82}.card{background:#fff;padding:14px;margin:12px 0;border-radius:12px;box-shadow:0 1px 5px #ddd}input,textarea,button{font:inherit;width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #ccd3dd}button{background:#1756a9;color:white;border:0;font-weight:bold;cursor:pointer}.secondary{background:#e8eef6;color:#174a82}.small{color:#687386;font-size:13px}.status{padding:10px;border-radius:8px;background:#e8eef6}.ot-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.ot-title b{font-size:18px}.notified{accent-color:#1756a9;width:auto;transform:scale(1.2)}.line{overflow-wrap:anywhere}
 </style>
 </head>
-<body>
-<main>
+<body><main>
 <h1>Buscador de OTs</h1>
-<p>Consulta órdenes de trabajo por número, equipo, reserva o descripción.</p>
-<input id="q" placeholder="Buscar OT, equipo, reserva..." oninput="render()">
+<p>Busca órdenes por número, equipo, reserva o descripción. Los cambios se comparten con los demás usuarios.</p>
+<input id="q" placeholder="Buscar OT, equipo, reserva o descripción..." oninput="buscar()">
+<p id="status" class="status">Conectando con la base de datos…</p>
 <div class="card">
-<b>Importar archivo TXT</b>
+<b>Importar OTs desde TXT</b>
+<p class="small">Importa líneas que contengan un número en formato “OT 12345”. Las OTs existentes no se duplican ni pierden su estado.</p>
 <input type="file" id="file" accept=".txt">
-<button onclick="importar()">Importar OTs</button>
-<textarea id="txt" rows="4" placeholder="También puedes pegar aquí una OT por línea"></textarea>
-<button onclick="agregar()">Agregar líneas pegadas</button>
-<p class="small">Las OTs existentes no se duplican.</p>
+<button onclick="importarArchivo()">Importar archivo TXT</button>
+<textarea id="txt" rows="3" placeholder="O pega aquí las líneas del archivo"></textarea>
+<button onclick="importarTexto()">Importar líneas pegadas</button>
 </div>
-<p id="count"></p>
-<div id="lista"></div>
-<p class="small">Prototipo inicial: las marcas se guardan en este navegador. Aún falta configurar la base de datos compartida para sincronizar usuarios.</p>
+<p id="count"></p><div id="lista"></div>
 </main>
 <script>
-let ots=JSON.parse(localStorage.getItem("ots")||"[]");
-function guardar(){localStorage.setItem("ots",JSON.stringify(ots));render()}
-function procesar(texto){
-texto.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).forEach(linea=>{
-let m=linea.match(/\bOT\s*[:#-]?\s*(\d{5,})/i);
-if(!m)return;
-let numero=m[1];
-if(!ots.some(o=>o.numero===numero))
-ots.push({numero,linea,notificada:false});
-});
-guardar();
+const API="https://gybnqafwltfxhpstmors.supabase.co/functions/v1/ots-api";
+const KEY="sb_publishable_fa-gsWKriWh01ovTP3kwKg_wQKgMVxW";
+let debounce;
+async function api(payload){
+ const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json","apikey":KEY},body:JSON.stringify(payload)});
+ const data=await r.json().catch(()=>({}));
+ if(!r.ok)throw new Error(data.error||data.message||"Error de conexión ("+r.status+")");
+ return data;
 }
-function importar(){
-let f=document.getElementById("file").files[0];
-if(!f){alert("Selecciona un archivo TXT.");return}
-let r=new FileReader();
-r.onload=()=>procesar(r.result);
-r.readAsText(f);
+function status(t){document.getElementById("status").textContent=t}
+async function buscar(){
+ clearTimeout(debounce);
+ debounce=setTimeout(async()=>{
+  const q=document.getElementById("q").value.trim();
+  try{
+   const rows=await api({action:"search",q});
+   render(rows);
+   status("Conectado. Los resultados vienen de la base de datos compartida.");
+  }catch(e){status("No se pudo conectar: "+e.message);document.getElementById("lista").innerHTML=""}
+ },250);
 }
-function agregar(){
-procesar(document.getElementById("txt").value);
-document.getElementById("txt").value="";
+function render(rows){
+ document.getElementById("count").textContent=rows.length+" OTs encontradas";
+ document.getElementById("lista").innerHTML=rows.map(o=>`<div class="card">
+ <div class="ot-title"><b>OT ${esc(o.numero)}</b><button class="secondary" style="width:auto" onclick="copiar('${esc(o.numero)}')">Copiar OT</button></div>
+ <p class="line">${esc(o.linea_original||"")}</p>
+ <label><input class="notified" type="checkbox" ${o.notificada?"checked":""} onchange="marcar('${esc(o.numero)}',this.checked)"> OT notificada</label>
+ <p class="small">${o.notificada?"Marcada por: "+esc(o.notificada_por||"No indicado"):"Pendiente de notificar"} ${o.actualizada_en?" · Último cambio: "+new Date(o.actualizada_en).toLocaleString("es-PE"):""}</p>
+ </div>`).join("");
 }
-function copiar(n){
-navigator.clipboard.writeText(n).then(()=>alert("OT copiada: "+n))
-.catch(()=>prompt("Copia el número de OT:",n));
+async function marcar(numero,notificada){
+ const responsable=prompt("Escribe tu nombre para el historial:");
+ if(responsable===null){buscar();return}
+ try{await api({action:"toggle",numero,notificada,responsable:responsable.trim()||"No indicado"});status("Estado actualizado y compartido.");await buscar()}
+ catch(e){alert("No se pudo actualizar: "+e.message);buscar()}
 }
-function marcar(n,v){
-let o=ots.find(x=>x.numero===n);
-if(o)o.notificada=v;
-guardar();
+function copiar(n){navigator.clipboard.writeText(n).then(()=>alert("OT copiada: "+n)).catch(()=>prompt("Copia el número de OT:",n))}
+async function importarArchivo(){
+ const f=document.getElementById("file").files[0];if(!f){alert("Selecciona un archivo TXT.");return}
+ const text=await f.text();await importar(text);
 }
-function render(){
-let q=document.getElementById("q").value.toLowerCase();
-let lista=ots.filter(o=>(o.numero+" "+o.linea).toLowerCase().includes(q));
-document.getElementById("count").textContent=lista.length+" OTs encontradas";
-document.getElementById("lista").innerHTML=lista.map(o=>`
-<div class="card">
-<b>OT ${o.numero}</b>
-<p>${esc(o.linea)}</p>
-<button onclick="copiar('${o.numero}')">Copiar número OT</button>
-<label><input type="checkbox" style="width:auto" ${o.notificada?"checked":""} onchange="marcar('${o.numero}',this.checked)"> OT notificada</label>
-</div>`).join("");
+async function importarTexto(){const t=document.getElementById("txt").value;if(!t.trim()){alert("Pega primero las líneas.");return}await importar(t)}
+async function importar(text){
+ try{const r=await api({action:"import",text});status(r.message||("Importadas: "+r.imported));document.getElementById("txt").value="";document.getElementById("file").value="";await buscar()}
+ catch(e){alert("Error al importar: "+e.message)}
 }
-function esc(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-render();
-</script>
-</body>
-</html>
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+buscar();
+</script></body></html>
